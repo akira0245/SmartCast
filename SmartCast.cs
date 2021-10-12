@@ -44,7 +44,7 @@ namespace SmartCast
 		private delegate ulong CanCastDelegate(long a1, uint a2, uint a3, long a4, byte a5, byte a6);
 		private CanCastDelegate _canCast;
 
-		private delegate ulong DoActionDelegate(long a1, uint a2, uint a3, long a4, int a5, uint a6, int a7);
+		private delegate byte DoActionDelegate(long a1, uint a2, uint a3, long a4, int a5, uint a6, int a7);
 		private DoActionDelegate _doAction;
 		private Hook<DoActionDelegate> _doActionHook;
 
@@ -58,6 +58,11 @@ namespace SmartCast
 		private delegate long ActionReadyDelegate(long a1, uint actionType, uint actionId);
 		private ActionReadyDelegate _actionReady;
 
+        public delegate byte MacroDetor(long param_1, uint param_2, uint param_3, long param_4);
+		private MacroDetor _macroDetor;
+        private Vector3 queuedPos;
+        private uint queuedTarget;
+        
 		internal ActionManager* actionManager;
 
 		internal void SavePluginConfig() => DalamudApi.PluginInterface.SavePluginConfig(config);
@@ -96,6 +101,9 @@ namespace SmartCast
 			_doAction = Marshal.GetDelegateForFunctionPointer<DoActionDelegate>(_doActionFunc);
 			//_doActionLocationHook = new Hook<DoActionLocationDelegate>(_doActionLocationFunc, DetourL);
 			//_doActionLocationHook.Enable();
+            _macroDetor =
+                Marshal.GetDelegateForFunctionPointer<MacroDetor>(
+                    DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 33 C0 4C 8B B4 24 ?? ?? ?? ??"));
 
 			_doActionHook = new Hook<DoActionDelegate>(_doActionFunc, Detour);
 			_doActionHook.Enable();
@@ -200,7 +208,32 @@ namespace SmartCast
 			}
 		}
 
-		private ulong Detour(long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7)
+        void QueueAction(long a1,uint type,uint adjustedId,uint targetId,uint castFrom)
+        {
+            actionManager->IsQueued = true;
+            actionManager->QueuedActionType = 1;
+            actionManager->queuedActionId = adjustedId;
+            actionManager->queuedActionTargetId = targetId;
+            actionManager->QueuedUseType = 0;
+            actionManager->QueuedPVPAction = 0;
+            if (castFrom == 2)
+            {
+                queuedTarget = targetId;
+				queuedPos = Vector3.Zero;
+            }
+            else
+            {
+                MouseToWorld(a1, adjustedId, type, out var mouseOnWorld, out var success, out var worldPos);
+                if (success & mouseOnWorld)
+                {
+                    queuedPos = worldPos;
+                    queuedTarget = 0xE000_0000;
+                }
+            }
+			Log.Debug($"QUEUED:{castFrom} {adjustedId} {targetId}");
+        }
+
+		private byte Detour(long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7)
 		{
 
 			var rawAdjustedId = _getAdjustedActionId((IntPtr)a1, actionId);
@@ -226,48 +259,113 @@ namespace SmartCast
 
 			}
 
-			if (config.EnableSmartCast)
-			{
-				if (GroundTargetActions.TryGetValue(actionId, out var action))
-				{
-					if (config.GroundTargetSmartCastForNonPlayerSpell || action.IsPlayerAction)
-					{
-						if (!actionManager->IsQueued)
-						{
-							actionManager->IsQueued = true;
-							actionManager->QueuedActionType = 1;
-							actionManager->queuedActionId = adjustedId;
-							actionManager->queuedActionTargetId = targetId;
-							//actionManager->QueuedUseType = 0;
-							//actionManager->QueuedPVPAction = 0;
-							return 1;
-						}
-						
-						if (castFrom != 2U || targetId == 0xE000_0000)
-						{
-							if (_actionReady(a1, actionType, actionId) == 0L && _canCast(a1, actionType, actionId, targetId, 1, 1) == 0UL)
-							{
-								MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success, out var worldPos);
-								Log.Debug($"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
-								if (mouseOnWorld && success)
-								{
-									unsafe
-									{
-										byte b = this._doActionLocation(a1, actionType, actionId, targetId, &worldPos, 0U);
-										Log.Debug($"_doActionLocation ret: {b}");
-										return b;
-									}
-								}
-							}
-						}
-					}
-				}
-			}
+            if (config.EnableSmartCast)
+            {
+                if (GroundTargetActions.TryGetValue(actionId, out var action)){
+                    if (config.GroundTargetSmartCastForNonPlayerSpell || action.IsPlayerAction)
+                    {
+                        if (_canCast(a1, actionType, actionId, targetId, 1, 1) != 0UL && _actionReady(a1, actionType, actionId) == 0L)
+                        {
+                            
+                            if (!actionManager->IsQueued)
+                            {
+                                queuedPos = Vector3.Zero;
+                                queuedTarget = 0xE000_0000;
+                                QueueAction(a1, actionType, actionId, (uint)targetId, castFrom);
+                                return 1;
+                            }
 
-			if (config.QueueMacroAction && castFrom == 2U)
-			{
-				castFrom = 0U;
-			}
+                        }
+                        else if (_actionReady(a1, actionType, actionId) == 0L)
+                        {
+                            if (castFrom == 1)
+                            {
+                                if (queuedPos != Vector3.Zero)
+                                {
+                                    
+                                    {
+                                        var pos = queuedPos;
+                                        byte b = this._doActionLocation(a1, actionType, actionId, targetId, &pos, 0U);
+                                        Log.Debug($"_doActionLocation ret: {b}");
+                                        queuedPos = Vector3.Zero;
+                                        queuedTarget = 0xE000_0000;
+                                        return b;
+                                    }
+                                }
+
+                                if (queuedTarget != 0xE000_0000)
+                                {
+									Log.Debug($"exec {queuedTarget}");
+                                    var r = _doActionHook.Original(a1, actionType, actionId, targetId, a5, castFrom,
+                                        a7);
+                                    _macroDetor(a1, actionType, actionId, queuedTarget);
+                                    return r;
+                                }
+                            }
+
+                            if (castFrom == 0)
+                            {
+                                MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success, out var worldPos);
+                                Log.Debug($"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
+                                if (mouseOnWorld && success)
+                                {
+                                    
+                                    {
+                                        byte b = this._doActionLocation(a1, actionType, actionId, targetId, &worldPos, 0U);
+                                        Log.Debug($"_doActionLocation ret: {b}");
+                                        return b;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+            }
+
+
+			//if (config.EnableSmartCast)
+			//{
+			//	if (GroundTargetActions.TryGetValue(actionId, out var action))
+			//	{
+			//		if (config.GroundTargetSmartCastForNonPlayerSpell || action.IsPlayerAction)
+			//		{
+			//			if (!actionManager->IsQueued)
+			//			{
+			//				actionManager->IsQueued = true;
+			//				actionManager->QueuedActionType = 1;
+			//				actionManager->queuedActionId = adjustedId;
+			//				actionManager->queuedActionTargetId = targetId;
+			//				//actionManager->QueuedUseType = 0;
+			//				//actionManager->QueuedPVPAction = 0;
+			//				return 1;
+			//			}
+						
+			//			if (castFrom != 2U || targetId == 0xE000_0000)
+			//			{
+			//				if (_actionReady(a1, actionType, actionId) == 0L && _canCast(a1, actionType, actionId, targetId, 1, 1) == 0UL)
+			//				{
+			//					MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success, out var worldPos);
+			//					Log.Debug($"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
+			//					if (mouseOnWorld && success)
+			//					{
+			//						unsafe
+			//						{
+			//							byte b = this._doActionLocation(a1, actionType, actionId, targetId, &worldPos, 0U);
+			//							Log.Debug($"_doActionLocation ret: {b}");
+			//							return b;
+			//						}
+			//					}
+			//				}
+			//			}
+			//		}
+			//	}
+			//}
+
+			//if (config.QueueMacroAction && castFrom == 2U)
+			//{
+			//	castFrom = 0U;
+			//}
 
 
 			{
