@@ -60,8 +60,8 @@ namespace SmartCast
 
         public delegate byte MacroDetor(long param_1, uint param_2, uint param_3, long param_4);
 		private MacroDetor _macroDetor;
-        private Vector3 queuedPos;
-        private uint queuedTarget;
+        private Vector3 queuedPos = Vector3.Zero;
+        private uint queuedTarget = 0xE000_0000;
         
 		internal ActionManager* actionManager;
 
