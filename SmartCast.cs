@@ -303,7 +303,7 @@ namespace SmartCast
                                 }
                             }
 
-                            if (castFrom == 0)
+                            if (castFrom != 2)
                             {
                                 MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success, out var worldPos);
                                 Log.Debug($"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
