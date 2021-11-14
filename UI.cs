@@ -1,19 +1,13 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
-using Dalamud.Plugin;
-using Dalamud.Utility;
 using ImGuiNET;
 
 namespace SmartCast
 {
-	class UI : IDisposable
+    class UI : IDisposable
 	{
 		private SmartCast plugin;
 		internal bool Visible;
@@ -39,8 +33,10 @@ namespace SmartCast
 				{
 
 					var configChanged =
-						HelpCheckbox(cn ? "使用智能施法" : "Use smart cast", cn ? "当你使用地面目标技能时，将技能施放在当前鼠标位置。" : "When you use ground target actions, cast the action at current mouse cursor position.", ref plugin.config.EnableSmartCast) |
-						(plugin.config.EnableSmartCast && HelpCheckbox(cn ? "非玩家技能智能施法" : "Use smart cast for non-player actions", cn ? "为非玩家地面目标技能（如坐骑技能、机甲技能、炮击等）使用智能施法。" : "Use smart cast for non-player ground target actions (such as mount actions, war machina actions, cannonfire, etc.).", ref plugin.config.GroundTargetSmartCastForNonPlayerSpell)) |
+						HelpCheckbox(cn ? "使用地面技能智能施法" : "Ground target actions smart cast", cn ? "当你使用地面目标技能时，将技能施放在当前鼠标位置。" : "When you use ground target actions, cast the action at current mouse cursor position.", ref plugin.config.EnableSmartCast) |
+						(plugin.config.EnableSmartCast && HelpCheckbox(cn ? "非玩家技能智能施法" : "Use smart cast for non-player ground target actions", cn ? "为非玩家地面目标技能（如坐骑技能、机甲技能、炮击等）使用智能施法。" : "Use smart cast for non-player ground target actions (such as mount actions, war machina actions, cannonfire, etc.).", ref plugin.config.GroundTargetSmartCastForNonPlayerSpell)) |
+
+                        (plugin.config.EnableSmartCast && HelpCheckbox(cn ? "目标技能智能施法" : "Enable mouseover smart cast", cn ? "对大多数治疗/辅助技能启用鼠标悬停施法。" : "Enable mouseover cast for most healing/support skills.", ref plugin.config.MouseOverFriendly)) |
 
 						HelpCheckbox(cn ? "按下技能时下坐骑" : "Auto dismount when using action", cn ? "在骑乘状态按下任一战斗技能时自动下坐骑，不使用按下的技能。" : "Dismount when using any battle action.", ref plugin.config.AutoDismount) |
 						(plugin.config.AutoDismount && HelpCheckbox(cn ? "下坐骑并使用技能" : "Dismount and do action", cn ? "下坐骑并立即使用按下的技能。" : "Use the action immediately after dismounted.", ref plugin.config.AutoDismountAndCast)) |

@@ -62,6 +62,10 @@ namespace SmartCast
 		private MacroDetor _macroDetor;
         private Vector3 queuedPos = Vector3.Zero;
         private uint queuedTarget = 0xE000_0000;
+
+        private delegate uint* MouseOverUi(long a1, uint* a2,long a3,int a4);
+        private Hook<MouseOverUi> mouseOverUiHook;
+        private uint? _mouseOverID;
         
 		internal ActionManager* actionManager;
 
@@ -74,6 +78,7 @@ namespace SmartCast
 			DalamudApi.Dispose();
 			_doActionLocationHook?.Dispose();
 			_doActionHook?.Dispose();
+			mouseOverUiHook?.Dispose();
 		}
 
 		public SmartCast(DalamudPluginInterface pluginInterface)
@@ -107,6 +112,10 @@ namespace SmartCast
 
 			_doActionHook = new Hook<DoActionDelegate>(_doActionFunc, Detour);
 			_doActionHook.Enable();
+
+            mouseOverUiHook = new Hook<MouseOverUi>(DalamudApi.SigScanner.ScanText("40 56 57 41 55 48 83 EC 30 4C 89 64 24 ??"),
+                MouseOverUiDeto);
+            mouseOverUiHook.Enable();
 
 			config = (Config)pluginInterface.GetPluginConfig() ?? new Config();
 			pluginUI = new UI(this);
@@ -208,6 +217,30 @@ namespace SmartCast
 			}
 		}
 
+        private uint* MouseOverUiDeto(long a1, uint* a2,long a3,int a4)
+        {
+            //PluginLog.Error($"{a1:X}:{*a2:X}:{a3:X}:{a4}");
+            if ((*(byte*)a3 & 0xF) != 0)
+            {
+                var l3 = *(uint*)(a3 + 8);
+                _mouseOverID = l3 switch
+                {
+                    0 => DalamudApi.ClientState.LocalPlayer?.ObjectId,
+                    <8 => DalamudApi.PartyList[(int)l3]?.ObjectId,
+                    16 => DalamudApi.TargetManager.FocusTarget?.ObjectId,
+                    17 => DalamudApi.TargetManager.Target?.TargetObject?.ObjectId,
+                    18 => DalamudApi.TargetManager.Target?.ObjectId,
+                    _ => null
+                };
+				if (_mouseOverID!= null) PluginLog.Error($"{_mouseOverID:X}");
+				
+            }
+            
+            var result = mouseOverUiHook.Original(a1, a2,a3,a4);
+            return result;
+        }
+
+
         void QueueAction(long a1,uint type,uint adjustedId,uint targetId,uint castFrom)
         {
             actionManager->IsQueued = true;
@@ -261,7 +294,8 @@ namespace SmartCast
 
             if (config.EnableSmartCast)
             {
-                if (GroundTargetActions.TryGetValue(actionId, out var action)){
+                if (GroundTargetActions.TryGetValue(actionId, out var action))
+                {
                     if (config.GroundTargetSmartCastForNonPlayerSpell || action.IsPlayerAction)
                     {
                         if (_canCast(a1, actionType, actionId, targetId, 1, 1) != 0UL && _actionReady(a1, actionType, actionId) == 0L)
@@ -320,6 +354,22 @@ namespace SmartCast
                         }
                     }
 
+                }
+				else if (config.MouseOverFriendly && DismountActions.TryGetValue(actionId, out action) && (action.CanTargetFriendly || action.CanTargetParty))
+                {
+                    
+                    if (_mouseOverID != null && _mouseOverID != 0)
+                    {
+                        var result = _doActionHook.Original(a1, actionType, actionId, (long)_mouseOverID, a5, castFrom, a7);
+                        return result;
+                    }
+                    if (DalamudApi.TargetManager.MouseOverTarget != null)
+                    {
+                        var result = _doActionHook.Original(a1, actionType, actionId,
+                            DalamudApi.TargetManager.MouseOverTarget.ObjectId, a5, castFrom, a7);
+                        return result;
+                    }
+                    
                 }
             }
 

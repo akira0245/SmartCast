@@ -16,7 +16,7 @@ namespace SmartCast
 		public bool QueueMacroAction = true;
 		public bool AutoDismount = true;
 		public bool AutoDismountAndCast = true;
-
+        public bool MouseOverFriendly = true;
 		public int Version { get; set; }
 	}
 }
