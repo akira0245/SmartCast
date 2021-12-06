@@ -1,26 +1,20 @@
-﻿using System;
+﻿using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Hooking;
+using Dalamud.Logging;
+using Dalamud.Plugin;
+using Lumina.Excel.GeneratedSheets;
+using SmartCast.DalamuApi;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Dalamud;
-using Dalamud.Game.ClientState;
-using Dalamud.Game.ClientState.Conditions;
-using Dalamud.Hooking;
-using Dalamud.Logging;
-using Dalamud.Plugin;
-using Lumina.Excel;
-using Lumina.Excel.GeneratedSheets;
-using SmartCast.DalamuApi;
 using Action = Lumina.Excel.GeneratedSheets.Action;
 
 namespace SmartCast
 {
-	public unsafe class SmartCast : IDalamudPlugin
+    public unsafe class SmartCast : IDalamudPlugin
 	{
 
 		internal Config config;
@@ -44,7 +38,7 @@ namespace SmartCast
 		private delegate ulong CanCastDelegate(long a1, uint a2, uint a3, long a4, byte a5, byte a6);
 		private CanCastDelegate _canCast;
 
-		private delegate byte DoActionDelegate(long a1, uint a2, uint a3, long a4, int a5, uint a6, int a7);
+		private delegate byte DoActionDelegate(long a1, uint a2, uint a3, long a4, int a5, uint a6, int a7, long a8);
 		private DoActionDelegate _doAction;
 		private Hook<DoActionDelegate> _doActionHook;
 
@@ -53,12 +47,13 @@ namespace SmartCast
 		private Hook<DoActionLocationDelegate> _doActionLocationHook;
 
 		private delegate void MouseToWorldDelegate(long a1, uint spellid, uint a3, long result);
+		Hook<MouseToWorldDelegate> _mouseToWorldHook;
 		private MouseToWorldDelegate _mouseToWorld;
 
 		private delegate long ActionReadyDelegate(long a1, uint actionType, uint actionId);
 		private ActionReadyDelegate _actionReady;
 
-        public delegate byte MacroDetor(long param_1, uint param_2, uint param_3, long param_4);
+        public delegate byte MacroDetor(long param_1, uint param_2, uint param_3, long param_4, int zerotwo);
 		private MacroDetor _macroDetor;
         private Vector3 queuedPos = Vector3.Zero;
         private uint queuedTarget = 0xE000_0000;
@@ -79,6 +74,7 @@ namespace SmartCast
 			_doActionLocationHook?.Dispose();
 			_doActionHook?.Dispose();
 			mouseOverUiHook?.Dispose();
+			_mouseToWorldHook?.Dispose();
 		}
 
 		public SmartCast(DalamudPluginInterface pluginInterface)
@@ -89,29 +85,29 @@ namespace SmartCast
 			BattleJobs = DalamudApi.DataManager.GetExcelSheet<ClassJob>().Where(i => i.ClassJobCategory?.Value?.RowId is 30 or 31).Select(i => i.RowId).ToHashSet();
 
 			actionManager = (ActionManager*)DalamudApi.SigScanner.GetStaticAddressFromSig("48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 8B F8 8B CF");
-			//ConditionsPtr = (byte*)DalamudApi.SigScanner.GetStaticAddressFromSig("48 8D 0D ?? ?? ?? ?? BA ?? ?? ?? ?? E8 ?? ?? ?? ?? B0 01 48 83 C4 30");
-			_canCastFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 83 BC 24 ?? ?? ?? ?? ?? 8B F0");
+            _canCastFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 83 BC 24 ?? ?? ?? ?? ?? 8B F0");
 			_doActionFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? EB 64 B1 01");
-			_mouseToWorldFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 41 B6 01 44 38 74 24 ??");
-			_doActionLocationFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 3C 01 0F 85 ?? ?? ?? ?? EB 46");
-			_actionReadyFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 3C 01 74 45");
+			_mouseToWorldFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 84 C0 74 4E");
+			_doActionLocationFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 4C 8B B4 24 ?? ?? ?? ?? 0F B6 F0");
+			_actionReadyFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 3C 01 74 45 FF C7");
 			_getAdjustedActionIdFunc = DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 8B F8 3B DF ");
-			ActionManager.actionCommandRequestTypePtr = DalamudApi.SigScanner.ScanText("02 00 00 00 45 8B C5 89");
 
-			_getAdjustedActionId = Marshal.GetDelegateForFunctionPointer<GetAdjustedActionIdDelegate>(_getAdjustedActionIdFunc);
+            _getAdjustedActionId = Marshal.GetDelegateForFunctionPointer<GetAdjustedActionIdDelegate>(_getAdjustedActionIdFunc);
 			_mouseToWorld = Marshal.GetDelegateForFunctionPointer<MouseToWorldDelegate>(_mouseToWorldFunc);
 			_doActionLocation = Marshal.GetDelegateForFunctionPointer<DoActionLocationDelegate>(_doActionLocationFunc);
 			_actionReady = Marshal.GetDelegateForFunctionPointer<ActionReadyDelegate>(_actionReadyFunc);
 			_canCast = Marshal.GetDelegateForFunctionPointer<CanCastDelegate>(_canCastFunc);
 			_doAction = Marshal.GetDelegateForFunctionPointer<DoActionDelegate>(_doActionFunc);
-			//_doActionLocationHook = new Hook<DoActionLocationDelegate>(_doActionLocationFunc, DetourL);
-			//_doActionLocationHook.Enable();
+
+            _mouseToWorldHook = new Hook<MouseToWorldDelegate>(_mouseToWorldFunc, mousetoworld);
+			_mouseToWorldHook.Enable();
+
             _macroDetor =
                 Marshal.GetDelegateForFunctionPointer<MacroDetor>(
-                    DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 33 C0 4C 8B B4 24 ?? ?? ?? ??"));
+                    DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 33 C0 EB 93"));
 
 			_doActionHook = new Hook<DoActionDelegate>(_doActionFunc, Detour);
-			_doActionHook.Enable();
+            _doActionHook.Enable();
 
             mouseOverUiHook = new Hook<MouseOverUi>(DalamudApi.SigScanner.ScanText("40 56 57 41 55 48 83 EC 30 4C 89 64 24 ??"),
                 MouseOverUiDeto);
@@ -126,16 +122,7 @@ namespace SmartCast
 			}
 		}
 
-		private unsafe byte DetourL(long a1, uint actiontype, uint actionid, long targetId, Vector3* a5, uint a6)
-		{
-			Log.Debug($"_doActionLocation {a1:X}, actiontype: {actiontype}, actionid: {actionid}, a4: {targetId:X}, a5: {*a5}, a6: {a6},");
-			var original = _doActionLocationHook.Original.Invoke(a1, actiontype, actionid, targetId, a5, a6);
-			Log.Debug($"_doActionLocation original: {original}");
-
-			return original;
-		}
-
-		[Command("/smartcast")]
+        [Command("/smartcast")]
 		[HelpMessage("open SmartCast config" +
 					 "\n/smartcast <on/off/toggle> → enable/disable ground target action smart cast" +
 					 "\n/smartcast nonplayer <on/off/toggle> → enable/disable non-player ground target action smart cast")]
@@ -185,37 +172,49 @@ namespace SmartCast
 			DalamudApi.ChatGui.Print($"[SmartCast] {displayName} {(value ? "enabled." : "disabled.")}");
 		}
 
-		private (long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7)? waitedAction = null;
-		private DateTime? tryTime = null;
+        private (long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7, long a8)? waitedAction = null;
+        private DateTime? tryTime = null;
 
 		private void OnFramework(Dalamud.Game.Framework framework)
 		{
 
-			if (waitedAction == null || tryTime == null || tryTime < DateTime.Now) return;
+            if (waitedAction == null || tryTime == null || tryTime < DateTime.Now) return;
 
-			(long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7) = waitedAction.Value;
+            (long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7, long a8) = waitedAction.Value;
 
-			Log.Verbose($"Cast queue: actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
+            Log.Verbose($"Cast queue: actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
 
-			var actionReady = _actionReady(a1, actionType, actionId);
-			Log.Verbose($"_actionReady: {actionReady}");
+            var actionReady = _actionReady(a1, actionType, actionId);
+            Log.Verbose($"_actionReady: {actionReady}");
 
-			if (actionReady == 0)
-			{
-				var cancast = _canCast.Invoke(a1, actionType, actionId, targetId, 1, 1);
-				Log.Verbose($"cancast: {cancast}");
-				if (cancast == 0)
-				{
-					var doaction = _doAction.Invoke(a1, actionType, actionId, targetId, a5, castFrom, a7);
-					Log.Debug($"Cancast passed: DoAction ret: {doaction}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
-					if (doaction == 1)
-					{
-						waitedAction = null;
-						tryTime = null;
-					}
-				}
-			}
-		}
+            if (actionReady == 0)
+            {
+                var cancast = _canCast.Invoke(a1, actionType, actionId, targetId, 1, 1);
+                Log.Verbose($"cancast: {cancast}");
+                if (cancast == 0)
+                {
+                    var doaction = _doAction.Invoke(a1, actionType, actionId, targetId, a5, castFrom, a7, a8);
+                    Log.Debug($"Cancast passed: DoAction ret: {doaction}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
+                    if (doaction == 1)
+                    {
+                        waitedAction = null;
+                        tryTime = null;
+                    }
+                }
+            }
+        }
+
+        void mousetoworld(long a1, uint spellid, uint a3, long result)
+        {
+			Log.Debug($"MouseToWorld:{spellid}:{a3}");
+            var str = "";
+            for (int i = 0; i < 30; i++)
+            {
+                str += " " + Marshal.ReadByte((IntPtr)result, i);
+            }
+            Log.Debug($"STACK:{str}");
+            _mouseToWorldHook.Original(a1, spellid, a3, result);
+        }
 
         private uint* MouseOverUiDeto(long a1, uint* a2,long a3,int a4)
         {
@@ -266,31 +265,31 @@ namespace SmartCast
 			Log.Debug($"QUEUED:{castFrom} {adjustedId} {targetId}");
         }
 
-		private byte Detour(long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7)
+		private byte Detour(long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7, long a8)
 		{
+            Log.Debug($"DoAction original: A1:{a1:X}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}, a8:{a8}");
+            var rawAdjustedId = _getAdjustedActionId((IntPtr)a1, actionId);
+            var adjustedId = (uint)rawAdjustedId;
+            if (config.AutoDismount)
+            {
+                var mounted = DalamudApi.Condition[ConditionFlag.Mounted];
+                if (mounted && (ActionType)actionType == ActionType.Spell)
+                {
 
-			var rawAdjustedId = _getAdjustedActionId((IntPtr)a1, actionId);
-			var adjustedId = (uint)rawAdjustedId;
-			if (config.AutoDismount)
-			{
-				var mounted = DalamudApi.Condition[ConditionFlag.Mounted];
-				if (mounted && (ActionType)actionType == ActionType.Spell)
-				{
+                    if (DismountActions.ContainsKey(adjustedId) && DalamudApi.ClientState.LocalPlayer is not null && BattleJobs.Contains(DalamudApi.ClientState.LocalPlayer.ClassJob.Id))
+                    {
+                        if (config.AutoDismountAndCast)
+                        {
+                            //PluginLog.Debug($"RawID: {actionId}->{rawAdjustedId}");
+                            waitedAction = (a1, actionType, adjustedId, targetId, a5, castFrom, a7, (long)a8);
+                            tryTime = DateTime.Now.AddSeconds(1);
+                        }
+                        Log.Debug($"Used actionType: {actionType}, actionId: {actionId}->{adjustedId}, Dismounting!");
+                        return _doActionHook.Original.Invoke(a1, (uint)ActionType.General, 23, 0xE000_0000, 0, 0, 0, a8);
+                    }
+                }
 
-					if (DismountActions.ContainsKey(adjustedId) && DalamudApi.ClientState.LocalPlayer is not null && BattleJobs.Contains(DalamudApi.ClientState.LocalPlayer.ClassJob.Id))
-					{
-						if (config.AutoDismountAndCast)
-						{
-							//PluginLog.Debug($"RawID: {actionId}->{rawAdjustedId}");
-							waitedAction = (a1, actionType, adjustedId, targetId, a5, castFrom, a7);
-							tryTime = DateTime.Now.AddSeconds(1);
-						}
-						Log.Debug($"Used actionType: {actionType}, actionId: {actionId}->{adjustedId}, Dismounting!");
-						return _doActionHook.Original.Invoke(a1, (uint)ActionType.General, 23, 0xE000_0000, 0, 0, 0);
-					}
-				}
-
-			}
+            }
 
             if (config.EnableSmartCast)
             {
@@ -298,9 +297,10 @@ namespace SmartCast
                 {
                     if (config.GroundTargetSmartCastForNonPlayerSpell || action.IsPlayerAction)
                     {
-                        if (_canCast(a1, actionType, actionId, targetId, 1, 1) != 0UL && _actionReady(a1, actionType, actionId) == 0L)
+                        if (_canCast(a1, actionType, actionId, targetId, 1, 1) != 0UL &&
+                            _actionReady(a1, actionType, actionId) == 0L)
                         {
-                            
+
                             if (!actionManager->IsQueued)
                             {
                                 queuedPos = Vector3.Zero;
@@ -316,7 +316,7 @@ namespace SmartCast
                             {
                                 if (queuedPos != Vector3.Zero)
                                 {
-                                    
+
                                     {
                                         var pos = queuedPos;
                                         byte b = this._doActionLocation(a1, actionType, actionId, targetId, &pos, 0U);
@@ -329,23 +329,26 @@ namespace SmartCast
 
                                 if (queuedTarget != 0xE000_0000)
                                 {
-									Log.Debug($"exec {queuedTarget}");
+                                    Log.Debug($"exec {queuedTarget}");
                                     var r = _doActionHook.Original(a1, actionType, actionId, targetId, a5, castFrom,
-                                        a7);
-                                    _macroDetor(a1, actionType, actionId, queuedTarget);
+                                        a7, a8);
+                                    _macroDetor(a1, actionType, actionId, queuedTarget, 0);
                                     return r;
                                 }
                             }
 
                             if (castFrom != 2)
                             {
-                                MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success, out var worldPos);
-                                Log.Debug($"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
+                                MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success,
+                                    out var worldPos);
+                                Log.Debug(
+                                    $"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
                                 if (mouseOnWorld && success)
                                 {
-                                    
+
                                     {
-                                        byte b = this._doActionLocation(a1, actionType, actionId, targetId, &worldPos, 0U);
+                                        byte b = this._doActionLocation(a1, actionType, actionId, targetId, &worldPos,
+                                            0U);
                                         Log.Debug($"_doActionLocation ret: {b}");
                                         return b;
                                     }
@@ -355,73 +358,29 @@ namespace SmartCast
                     }
 
                 }
-				else if (config.MouseOverFriendly && DismountActions.TryGetValue(actionId, out action) && (action.CanTargetFriendly || action.CanTargetParty))
-                {
-                    
-                    if (_mouseOverID != null && _mouseOverID != 0)
-                    {
-                        var result = _doActionHook.Original(a1, actionType, actionId, (long)_mouseOverID, a5, castFrom, a7);
-                        return result;
-                    }
-                    if (DalamudApi.TargetManager.MouseOverTarget != null)
-                    {
-                        var result = _doActionHook.Original(a1, actionType, actionId,
-                            DalamudApi.TargetManager.MouseOverTarget.ObjectId, a5, castFrom, a7);
-                        return result;
-                    }
-                    
-                }
             }
+            else if (config.MouseOverFriendly && DismountActions.TryGetValue(actionId, out var action) && (action.CanTargetFriendly || action.CanTargetParty))
+            {
 
+                if (_mouseOverID != null && _mouseOverID != 0)
+                {
+                    var result = _doActionHook.Original(a1, actionType, actionId, (long)_mouseOverID, a5, castFrom, a7, a8);
+                    return result;
+                }
+                if (DalamudApi.TargetManager.MouseOverTarget != null)
+                {
+                    var result = _doActionHook.Original(a1, actionType, actionId,
+                        DalamudApi.TargetManager.MouseOverTarget.ObjectId, a5, castFrom, a7, a8);
+                    return result;
+                }
 
-			//if (config.EnableSmartCast)
-			//{
-			//	if (GroundTargetActions.TryGetValue(actionId, out var action))
-			//	{
-			//		if (config.GroundTargetSmartCastForNonPlayerSpell || action.IsPlayerAction)
-			//		{
-			//			if (!actionManager->IsQueued)
-			//			{
-			//				actionManager->IsQueued = true;
-			//				actionManager->QueuedActionType = 1;
-			//				actionManager->queuedActionId = adjustedId;
-			//				actionManager->queuedActionTargetId = targetId;
-			//				//actionManager->QueuedUseType = 0;
-			//				//actionManager->QueuedPVPAction = 0;
-			//				return 1;
-			//			}
-						
-			//			if (castFrom != 2U || targetId == 0xE000_0000)
-			//			{
-			//				if (_actionReady(a1, actionType, actionId) == 0L && _canCast(a1, actionType, actionId, targetId, 1, 1) == 0UL)
-			//				{
-			//					MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success, out var worldPos);
-			//					Log.Debug($"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
-			//					if (mouseOnWorld && success)
-			//					{
-			//						unsafe
-			//						{
-			//							byte b = this._doActionLocation(a1, actionType, actionId, targetId, &worldPos, 0U);
-			//							Log.Debug($"_doActionLocation ret: {b}");
-			//							return b;
-			//						}
-			//					}
-			//				}
-			//			}
-			//		}
-			//	}
-			//}
+            }
+            
 
-			//if (config.QueueMacroAction && castFrom == 2U)
-			//{
-			//	castFrom = 0U;
-			//}
+            {
 
-
-			{
-
-				var original = this._doActionHook.Original(a1, actionType, actionId, targetId, a5, castFrom, a7);
-				Log.Debug($"DoAction ret: {original}({original:X}) original: A1:{a1:X}, actionType: {actionType}, actionId: {actionId}, adjustedId: {rawAdjustedId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
+				var original = this._doActionHook.Original(a1, actionType, actionId, targetId, a5, castFrom, a7, a8);
+				Log.Debug($"DoAction ret: original: A1:{a1:X}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}, a8:{a8}");
 				return original;
 			}
 		}
@@ -430,12 +389,14 @@ namespace SmartCast
 		internal ActionManager capture;
 #endif
 		private unsafe void MouseToWorld(long a1, uint spellId, uint actionType, out bool mouseOnWorld, out bool success, out Vector3 worldPos)
-		{
-			var s = stackalloc byte[0x20];
-			_mouseToWorld(a1, spellId, actionType, (long)s);
+        {
+            
+			var s = stackalloc byte[0x30];
+            _mouseToWorld(a1, spellId, actionType, (long)s);
 			mouseOnWorld = s[0] == 1;
 			success = s[1] == 1;
 			worldPos = *(Vector3*)(s + 0x10);
+            Log.Debug($"{spellId}:{actionType}:{worldPos.X}:{worldPos.Y}:{worldPos.Z}:{mouseOnWorld}:{success}");
 		}
 
 		public string Name => nameof(SmartCast);
@@ -498,16 +459,6 @@ namespace SmartCast
 		[FieldOffset(0x618)] public float gcdPassed;
 		[FieldOffset(0x61C)] public float gcd;
 
-		public static IntPtr actionCommandRequestTypePtr = IntPtr.Zero;
-		public static byte ActionCommandRequestType
-		{
-			get => *(byte*)actionCommandRequestTypePtr;
-			set
-			{
-				if (actionCommandRequestTypePtr != IntPtr.Zero)
-					SafeMemory.WriteBytes(actionCommandRequestTypePtr, new[] { value });
-			}
-		}
 	}
 
 	enum CastFrom : uint
