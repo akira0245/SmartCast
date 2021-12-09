@@ -182,19 +182,19 @@ namespace SmartCast
 
             (long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7, long a8) = waitedAction.Value;
 
-            Log.Verbose($"Cast queue: actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
+            PluginLog.Verbose($"Cast queue: actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
 
             var actionReady = _actionReady(a1, actionType, actionId);
-            Log.Verbose($"_actionReady: {actionReady}");
+            PluginLog.Verbose($"_actionReady: {actionReady}");
 
             if (actionReady == 0)
             {
                 var cancast = _canCast.Invoke(a1, actionType, actionId, targetId, 1, 1);
-                Log.Verbose($"cancast: {cancast}");
+                PluginLog.Verbose($"cancast: {cancast}");
                 if (cancast == 0)
                 {
                     var doaction = _doAction.Invoke(a1, actionType, actionId, targetId, a5, castFrom, a7, a8);
-                    Log.Debug($"Cancast passed: DoAction ret: {doaction}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
+                    PluginLog.Debug($"Cancast passed: DoAction ret: {doaction}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}");
                     if (doaction == 1)
                     {
                         waitedAction = null;
@@ -206,13 +206,13 @@ namespace SmartCast
 
         void mousetoworld(long a1, uint spellid, uint a3, long result)
         {
-			Log.Debug($"MouseToWorld:{spellid}:{a3}");
+			PluginLog.Debug($"MouseToWorld:{spellid}:{a3}");
             var str = "";
             for (int i = 0; i < 30; i++)
             {
                 str += " " + Marshal.ReadByte((IntPtr)result, i);
             }
-            Log.Debug($"STACK:{str}");
+            PluginLog.Debug($"STACK:{str}");
             _mouseToWorldHook.Original(a1, spellid, a3, result);
         }
 
@@ -262,12 +262,12 @@ namespace SmartCast
                     queuedTarget = 0xE000_0000;
                 }
             }
-			Log.Debug($"QUEUED:{castFrom} {adjustedId} {targetId}");
+			PluginLog.Debug($"QUEUED:{castFrom} {adjustedId} {targetId}");
         }
 
 		private byte Detour(long a1, uint actionType, uint actionId, long targetId, int a5, uint castFrom, int a7, long a8)
 		{
-            Log.Debug($"DoAction original: A1:{a1:X}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}, a8:{a8}");
+            PluginLog.Debug($"DoAction original: A1:{a1:X}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}, a8:{a8}");
             var rawAdjustedId = _getAdjustedActionId((IntPtr)a1, actionId);
             var adjustedId = (uint)rawAdjustedId;
             if (config.AutoDismount)
@@ -284,82 +284,96 @@ namespace SmartCast
                             waitedAction = (a1, actionType, adjustedId, targetId, a5, castFrom, a7, (long)a8);
                             tryTime = DateTime.Now.AddSeconds(1);
                         }
-                        Log.Debug($"Used actionType: {actionType}, actionId: {actionId}->{adjustedId}, Dismounting!");
+                        PluginLog.Debug($"Used actionType: {actionType}, actionId: {actionId}->{adjustedId}, Dismounting!");
                         return _doActionHook.Original.Invoke(a1, (uint)ActionType.General, 23, 0xE000_0000, 0, 0, 0, a8);
                     }
                 }
 
             }
 
-            if (config.EnableSmartCast)
+            if (_canCast(a1, actionType, actionId, targetId, 1, 1) != 0UL)	//目前无法使用技能
             {
-                if (GroundTargetActions.TryGetValue(actionId, out var action))
+                if (config.EnableSmartCast && GroundTargetActions.TryGetValue(actionId, out var action) && _actionReady(a1, actionType, actionId) == 0L)
                 {
                     if (config.GroundTargetSmartCastForNonPlayerSpell || action.IsPlayerAction)
                     {
-                        if (_canCast(a1, actionType, actionId, targetId, 1, 1) != 0UL &&
-                            _actionReady(a1, actionType, actionId) == 0L)
+                        //地面技能进队列
+                        if (!actionManager->IsQueued)
                         {
-
-                            if (!actionManager->IsQueued)
-                            {
-                                queuedPos = Vector3.Zero;
-                                queuedTarget = 0xE000_0000;
-                                QueueAction(a1, actionType, actionId, (uint)targetId, castFrom);
-                                return 1;
-                            }
-
+                            queuedPos = Vector3.Zero;
+                            queuedTarget = 0xE000_0000;
+                            QueueAction(a1, actionType, actionId, (uint)targetId, castFrom);
+                            return 0;
                         }
-                        else if (_actionReady(a1, actionType, actionId) == 0L)
+                    }
+                }
+				else if (config.QueueMacroAction && castFrom == 2) //ac进队列
+                {
+                    if (!actionManager->IsQueued)
+                    {
+                        queuedPos = Vector3.Zero;
+                        queuedTarget = 0xE000_0000;
+                        QueueAction(a1, actionType, actionId, (uint)targetId, castFrom);
+                        return 0;
+                    }
+                }
+
+            }
+            else if (_actionReady(a1, actionType, actionId) == 0L)	//可以使用技能
+            {
+                if (castFrom == 1)	//队列中技能
+                {
+                    if (queuedPos != Vector3.Zero)	//已储存了pos
+                    {
+                        var pos = queuedPos;
+                        var b = this._doActionLocation(a1, actionType, actionId, targetId, &pos, 0U);
+                        PluginLog.Debug($"_doActionLocation ret: {b}");
+                        queuedPos = Vector3.Zero;
+                        queuedTarget = 0xE000_0000;
+                        return b;
+                                    
+                    }
+
+                    if (queuedTarget != 0xE000_0000)	//已储存了target
+                    {
+                        PluginLog.Debug($"exec {queuedTarget}");
+                        var r = _doActionHook.Original(a1, actionType, actionId, targetId, a5, castFrom,
+                            a7, a8);
+                        _macroDetor(a1, actionType, actionId, queuedTarget, 0);
+                        queuedPos = Vector3.Zero;
+                        queuedTarget = 0xE000_0000;
+                        return r;
+                    }
+                }
+
+                if (castFrom != 2 && queuedPos == Vector3.Zero && queuedTarget == 0xE000_0000) //非宏，无储存
+                {
+                    if (config.EnableSmartCast && GroundTargetActions.TryGetValue(actionId, out var action))
+                    {
+                        if (config.GroundTargetSmartCastForNonPlayerSpell || action.IsPlayerAction)
                         {
-                            if (castFrom == 1)
+                            MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success,
+                                out var worldPos);
+                            PluginLog.Debug(
+                                $"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
+                            if (mouseOnWorld && success)
                             {
-                                if (queuedPos != Vector3.Zero)
+
                                 {
-
-                                    {
-                                        var pos = queuedPos;
-                                        byte b = this._doActionLocation(a1, actionType, actionId, targetId, &pos, 0U);
-                                        Log.Debug($"_doActionLocation ret: {b}");
-                                        queuedPos = Vector3.Zero;
-                                        queuedTarget = 0xE000_0000;
-                                        return b;
-                                    }
-                                }
-
-                                if (queuedTarget != 0xE000_0000)
-                                {
-                                    Log.Debug($"exec {queuedTarget}");
-                                    var r = _doActionHook.Original(a1, actionType, actionId, targetId, a5, castFrom,
-                                        a7, a8);
-                                    _macroDetor(a1, actionType, actionId, queuedTarget, 0);
-                                    return r;
-                                }
-                            }
-
-                            if (castFrom != 2)
-                            {
-                                MouseToWorld(a1, actionId, actionType, out var mouseOnWorld, out var success,
-                                    out var worldPos);
-                                Log.Debug(
-                                    $"targetId: {targetId:X}, castFrom: {castFrom}, mouseOnWorld: {mouseOnWorld}, success: {success}, location: {worldPos}");
-                                if (mouseOnWorld && success)
-                                {
-
-                                    {
-                                        byte b = this._doActionLocation(a1, actionType, actionId, targetId, &worldPos,
-                                            0U);
-                                        Log.Debug($"_doActionLocation ret: {b}");
-                                        return b;
-                                    }
+                                    byte b = this._doActionLocation(a1, actionType, actionId, targetId, &worldPos,
+                                        0U);
+                                    PluginLog.Debug($"_doActionLocation ret: {b}");
+                                    return b;
                                 }
                             }
                         }
                     }
-
                 }
+
+
             }
-            else if (config.MouseOverFriendly && DismountActions.TryGetValue(actionId, out var action) && (action.CanTargetFriendly || action.CanTargetParty))
+            //Smart悬浮施法
+            if (config.MouseOverFriendly && DismountActions.TryGetValue(actionId, out var action2) && (action2.CanTargetFriendly || action2.CanTargetParty))
             {
 
                 if (_mouseOverID != null && _mouseOverID != 0)
@@ -375,56 +389,29 @@ namespace SmartCast
                 }
 
             }
-            
 
             {
 
 				var original = this._doActionHook.Original(a1, actionType, actionId, targetId, a5, castFrom, a7, a8);
-				Log.Debug($"DoAction ret: original: A1:{a1:X}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}, a8:{a8}");
+				PluginLog.Debug($"DoAction ret: original: A1:{a1:X}, actionType: {actionType}, actionId: {actionId}, targetId: {targetId:X}, castFrom: {castFrom}, a5: {a5}, a7: {a7}, a8:{a8}");
 				return original;
 			}
 		}
 
-#if DEBUG
-		internal ActionManager capture;
-#endif
-		private unsafe void MouseToWorld(long a1, uint spellId, uint actionType, out bool mouseOnWorld, out bool success, out Vector3 worldPos)
+		private void MouseToWorld(long a1, uint spellId, uint actionType, out bool mouseOnWorld, out bool success, out Vector3 worldPos)
         {
             
-			var s = stackalloc byte[0x30];
+			var s = stackalloc byte[0x20];
             _mouseToWorld(a1, spellId, actionType, (long)s);
 			mouseOnWorld = s[0] == 1;
 			success = s[1] == 1;
 			worldPos = *(Vector3*)(s + 0x10);
-            Log.Debug($"{spellId}:{actionType}:{worldPos.X}:{worldPos.Y}:{worldPos.Z}:{mouseOnWorld}:{success}");
+            PluginLog.Debug($"{spellId}:{actionType}:{worldPos.X}:{worldPos.Y}:{worldPos.Z}:{mouseOnWorld}:{success}");
 		}
 
 		public string Name => nameof(SmartCast);
 	}
 
-	public static class Log
-	{
-		public static void Debug(object o, [CallerMemberName] string name = null, [CallerLineNumber] int line = 0)
-		{
-#if DEBUG
-			PluginLog.Debug($"[{name} L{line}] {o}");
-#endif
-		}
-		public static void Verbose(object o, [CallerMemberName] string name = null, [CallerLineNumber] int line = 0)
-		{
-#if DEBUG
-			PluginLog.Verbose($"[{name} L{line}] {o}");
-#endif
-		}
-		public static void Info(object o)
-		{
-			PluginLog.Information(o.ToString());
-		}
-		public static void Warning(object o)
-		{
-			PluginLog.Warning(o.ToString());
-		}
-	}
 
 	[StructLayout(LayoutKind.Explicit)]
 	public unsafe struct ActionManager
