@@ -42,6 +42,7 @@ namespace SmartCast
 						(plugin.config.AutoDismount && HelpCheckbox(cn ? "下坐骑并使用技能" : "Dismount and do action", cn ? "下坐骑并立即使用按下的技能。" : "Use the action immediately after dismounted.", ref plugin.config.AutoDismountAndCast)) |
 
 						HelpCheckbox(cn ? "宏技能队列" : "Queue macro actions", cn ? "将用户宏中通过“/ac”指令施放的技能插入技能队列中。" : "Insert actions cast by \"/ac\" commands into action queue.", ref plugin.config.QueueMacroAction);
+						HelpCheckbox(cn ? "突进技能面向镜头" : "Move to camera direction", cn ? "在使用回避跳跃、前冲步、Hell's Ingress、Hell's Egress技能时使角色面向当前镜头方向。" : "Face to current camera direction when using En Avant, Elusive Jump, Hell's Ingress and Hell's Egress.", ref plugin.config.MoveToCameraDirection);
 
 					if (configChanged)
 					{
