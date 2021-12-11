@@ -8,7 +8,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Action = Lumina.Excel.GeneratedSheets.Action;
 
@@ -61,10 +60,15 @@ namespace SmartCast
         private delegate uint* MouseOverUi(long a1, uint* a2,long a3,int a4);
         private Hook<MouseOverUi> mouseOverUiHook;
         private uint? _mouseOverID;
-        
-		internal ActionManager* actionManager;
 
-		internal void SavePluginConfig() => DalamudApi.PluginInterface.SavePluginConfig(config);
+        private delegate IntPtr PlaceHolder(long param1, string param2, byte param3 = 1, byte param4 = 0);
+        private Hook<PlaceHolder> placeHolderHook;
+		private PlaceHolder _placeHolderDetour;
+        private long _placeHolderA1;
+
+        internal ActionManager* actionManager;
+
+        internal void SavePluginConfig() => DalamudApi.PluginInterface.SavePluginConfig(config);
 
 		public void Dispose()
 		{
@@ -73,7 +77,8 @@ namespace SmartCast
 			DalamudApi.Dispose();
 			_doActionLocationHook?.Dispose();
 			_doActionHook?.Dispose();
-			mouseOverUiHook?.Dispose();
+            mouseOverUiHook?.Dispose();
+			placeHolderHook?.Dispose();
 			_mouseToWorldHook?.Dispose();
 		}
 
@@ -113,14 +118,28 @@ namespace SmartCast
                 MouseOverUiDeto);
             mouseOverUiHook.Enable();
 
-			config = (Config)pluginInterface.GetPluginConfig() ?? new Config();
-			pluginUI = new UI(this);
+            //placeHolderHook = new Hook<PlaceHolder>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 5C 24 ?? EB 0C"),
+            //    PlaceHolderDetour);
+            //placeHolderHook.Enable();
+
+            _placeHolderDetour =
+                Marshal.GetDelegateForFunctionPointer<PlaceHolder>(
+                    DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 5C 24 ?? EB 0C"));
+            
+            var ptr1 = DalamudApi.SigScanner.GetStaticAddressFromSig("44 0F B6 C0 48 8B 0D ?? ?? ?? ??");
+            var ptr2 = Marshal.ReadIntPtr(ptr1)+0x2B60;
+            var ptr3 = Marshal.ReadIntPtr(ptr2)+0xAA408 + 0x258;
+            _placeHolderA1 = Marshal.ReadInt64(ptr3)+ 0xAB610;
+
+            config = (Config)pluginInterface.GetPluginConfig() ?? new Config();
+
+            pluginUI = new UI(this);
 			DalamudApi.Framework.Update += OnFramework;
 			if (pluginInterface.Reason is not PluginLoadReason.Boot or PluginLoadReason.Update)
 			{
 				pluginUI.Visible = true;
 			}
-		}
+        }
 
         [Command("/smartcast")]
 		[HelpMessage("open SmartCast config" +
@@ -216,6 +235,17 @@ namespace SmartCast
             _mouseToWorldHook.Original(a1, spellid, a3, result);
         }
 
+        private uint GetObjectId(uint index)
+        {
+            var ptr = _placeHolderDetour(_placeHolderA1, $"<{index}>");
+            if (ptr != IntPtr.Zero || (int)ptr != 0)
+            {
+                return (uint)Marshal.ReadInt32(ptr + +0x74);
+            }
+
+            return 0xE0000000;
+        }
+
         private uint* MouseOverUiDeto(long a1, uint* a2,long a3,int a4)
         {
             //PluginLog.Error($"{a1:X}:{*a2:X}:{a3:X}:{a4}");
@@ -224,18 +254,27 @@ namespace SmartCast
                 var l3 = *(uint*)(a3 + 8);
                 _mouseOverID = l3 switch
                 {
-                    0 => DalamudApi.ClientState.LocalPlayer?.ObjectId,
-                    <8 => DalamudApi.PartyList[(int)l3]?.ObjectId,
+                    //0 => DalamudApi.ClientState.LocalPlayer?.ObjectId,
+                    <8 => GetObjectId(l3+1),
                     16 => DalamudApi.TargetManager.FocusTarget?.ObjectId,
                     17 => DalamudApi.TargetManager.Target?.TargetObject?.ObjectId,
                     18 => DalamudApi.TargetManager.Target?.ObjectId,
                     _ => null
                 };
-				if (_mouseOverID!= null) PluginLog.Error($"{_mouseOverID:X}");
+                if (_mouseOverID!= null) PluginLog.Error($"{_mouseOverID:X}");
 				
             }
             
             var result = mouseOverUiHook.Original(a1, a2,a3,a4);
+            return result;
+        }
+
+        private IntPtr PlaceHolderDetour(long param1, string param2, byte param3, byte param4)
+        {
+            
+            
+            var result = placeHolderHook.Original(param1,param2);
+            //PluginLog.Error($"{result:X}:{param1:X}:{param2}:{_placeHolderA1:X}");
             return result;
         }
 
