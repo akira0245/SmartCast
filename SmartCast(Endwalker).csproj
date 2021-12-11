@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net5.0-windows</TargetFramework>
     <OutputType>Library</OutputType>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <AssemblyVersion>0.2.0.1</AssemblyVersion>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
@@ -11,26 +11,26 @@
     <PackageReference Include="DalamudPackager" Version="2.1.2" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="Dalamud">
-      <HintPath>..\Dalamud\bin\Debug\Dalamud.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="ImGui.NET">
-      <HintPath>..\Dalamud\bin\Debug\ImGui.NET.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="ImGuiScene">
-      <HintPath>..\Dalamud\bin\Debug\ImGuiScene.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Lumina">
-      <HintPath>..\Dalamud\bin\Debug\Lumina.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Lumina.Excel">
-      <HintPath>..\Dalamud\bin\Debug\Lumina.Excel.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
+	  <Reference Include="Dalamud">
+		  <HintPath>$(AppData)\XIVLauncher\addon\Hooks\dev\Dalamud.dll</HintPath>
+		  <Private>false</Private>
+	  </Reference>
+	  <Reference Include="FFXIVClientStructs">
+		  <HintPath>$(AppData)\XIVLauncher\addon\Hooks\dev\FFXIVClientStructs.dll</HintPath>
+		  <Private>false</Private>
+	  </Reference>
+	  <Reference Include="ImGui.NET">
+		  <HintPath>$(AppData)\XIVLauncher\addon\Hooks\dev\ImGui.NET.dll</HintPath>
+		  <Private>false</Private>
+	  </Reference>
+	  <Reference Include="Lumina">
+		  <HintPath>$(AppData)\XIVLauncher\addon\Hooks\dev\Lumina.dll</HintPath>
+		  <Private>false</Private>
+	  </Reference>
+	  <Reference Include="Lumina.Excel">
+		  <HintPath>$(AppData)\XIVLauncher\addon\Hooks\dev\Lumina.Excel.dll</HintPath>
+		  <Private>false</Private>
+	  </Reference>
   </ItemGroup>
   
     
