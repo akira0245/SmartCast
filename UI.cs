@@ -47,11 +47,11 @@ namespace SmartCast
 					{
 						plugin.SavePluginConfig();
 					}
-					unsafe
-					{
-						ImGui.TextUnformatted($"{(long)plugin.actionManager:X}");
-						ShowObject(*plugin.actionManager);
-					}
+					//unsafe
+					//{
+					//	ImGui.TextUnformatted($"{(long)plugin.actionManager:X}");
+					//	ShowObject(*plugin.actionManager);
+					//}
 				}
 				 
 				ImGui.End();

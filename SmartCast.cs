@@ -86,7 +86,7 @@ namespace SmartCast
 		{
 			DalamudApi.Initialize(this, pluginInterface);
 			GroundTargetActions = DalamudApi.DataManager.GetExcelSheet<Action>().Where(i => i.TargetArea && i.RowId != 7419 && i.RowId != 3573).ToDictionary(i => i.RowId, j => j);
-			DismountActions = DalamudApi.DataManager.GetExcelSheet<Action>().Where(i => i.IsPlayerAction && i.RowId > 8 && i.ActionCategory?.Value.RowId is 2 or 3 or 4 or 9 or 15).ToDictionary(i => i.RowId, j => j);
+			DismountActions = DalamudApi.DataManager.GetExcelSheet<Action>().Where(i => i.IsPlayerAction && i.RowId > 8 && i.ActionCategory?.Value?.RowId is 2 or 3 or 4 or 9 or 15).ToDictionary(i => i.RowId, j => j);
 			BattleJobs = DalamudApi.DataManager.GetExcelSheet<ClassJob>().Where(i => i.ClassJobCategory?.Value?.RowId is 30 or 31).Select(i => i.RowId).ToHashSet();
 
 			actionManager = (ActionManager*)DalamudApi.SigScanner.GetStaticAddressFromSig("48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 8B F8 8B CF");
