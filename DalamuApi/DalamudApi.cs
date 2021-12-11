@@ -27,7 +27,7 @@ using Dalamud.Plugin;
 
 namespace SmartCast.DalamuApi
 {
-	public class DalamudApi
+    public class DalamudApi
     {
         [PluginService]
         //[RequiredVersion("1.0")]
@@ -119,9 +119,14 @@ namespace SmartCast.DalamuApi
 
         private static PluginCommandManager<IDalamudPlugin> _pluginCommandManager;
 
-        public DalamudApi() { }
+        public DalamudApi()
+        {
+        }
 
-        public DalamudApi(IDalamudPlugin plugin) => _pluginCommandManager ??= new(plugin);
+        public DalamudApi(IDalamudPlugin plugin)
+        {
+            _pluginCommandManager ??= new PluginCommandManager<IDalamudPlugin>(plugin);
+        }
 
         public DalamudApi(IDalamudPlugin plugin, DalamudPluginInterface pluginInterface)
         {
@@ -131,7 +136,7 @@ namespace SmartCast.DalamuApi
                 return;
             }
 
-            _pluginCommandManager ??= new(plugin);
+            _pluginCommandManager ??= new PluginCommandManager<IDalamudPlugin>(plugin);
         }
 
         public static DalamudApi operator +(DalamudApi container, object o)
@@ -143,15 +148,23 @@ namespace SmartCast.DalamuApi
                 f.SetValue(container, o);
                 return container;
             }
+
             throw new InvalidOperationException();
         }
 
-        public static void Initialize(IDalamudPlugin plugin, DalamudPluginInterface pluginInterface) => _ = new DalamudApi(plugin, pluginInterface);
+        public static void Initialize(IDalamudPlugin plugin, DalamudPluginInterface pluginInterface)
+        {
+            _ = new DalamudApi(plugin, pluginInterface);
+        }
 
-        public static void Dispose() => _pluginCommandManager?.Dispose();
+        public static void Dispose()
+        {
+            _pluginCommandManager?.Dispose();
+        }
     }
 
     #region PluginCommandManager
+
     public class PluginCommandManager<T> : IDisposable where T : IDalamudPlugin
     {
         private readonly T _plugin;
@@ -160,7 +173,8 @@ namespace SmartCast.DalamuApi
         public PluginCommandManager(T plugin)
         {
             _plugin = plugin;
-            _pluginCommands = _plugin.GetType().GetMethods(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
+            _pluginCommands = _plugin.GetType().GetMethods(BindingFlags.NonPublic | BindingFlags.Public |
+                                                           BindingFlags.Static | BindingFlags.Instance)
                 .Where(method => method.GetCustomAttribute<CommandAttribute>() != null)
                 .SelectMany(GetCommandInfoTuple)
                 .ToArray();
@@ -182,7 +196,9 @@ namespace SmartCast.DalamuApi
 
         private IEnumerable<(string, CommandInfo)> GetCommandInfoTuple(MethodInfo method)
         {
-            var handlerDelegate = (CommandInfo.HandlerDelegate)Delegate.CreateDelegate(typeof(CommandInfo.HandlerDelegate), _plugin, method);
+            var handlerDelegate =
+                (CommandInfo.HandlerDelegate)Delegate.CreateDelegate(typeof(CommandInfo.HandlerDelegate), _plugin,
+                    method);
 
             var command = handlerDelegate.Method.GetCustomAttribute<CommandAttribute>();
             var aliases = handlerDelegate.Method.GetCustomAttribute<AliasesAttribute>();
@@ -192,7 +208,7 @@ namespace SmartCast.DalamuApi
             var commandInfo = new CommandInfo(handlerDelegate)
             {
                 HelpMessage = helpMessage?.HelpMessage ?? string.Empty,
-                ShowInHelp = doNotShowInHelp == null,
+                ShowInHelp = doNotShowInHelp == null
             };
 
             // Create list of tuples that will be filled with one tuple per alias, in addition to the base command tuple.
@@ -209,9 +225,11 @@ namespace SmartCast.DalamuApi
             GC.SuppressFinalize(this);
         }
     }
+
     #endregion
 
     #region Attributes
+
     [AttributeUsage(AttributeTargets.Method)]
     public class AliasesAttribute : Attribute
     {
@@ -249,5 +267,6 @@ namespace SmartCast.DalamuApi
             HelpMessage = helpMessage;
         }
     }
+
     #endregion
 }
