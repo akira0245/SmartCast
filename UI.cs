@@ -73,7 +73,7 @@ namespace SmartCast
 					ImGui.TextColored(ImGuiColors.DalamudOrange,
 						string.Format("    {0}: {1:X}", (object)property.Name, property.GetValue(obj)));
 				}
-				catch (Exception e)
+				catch (Exception)
 				{
 					ImGui.TextColored(ImGuiColors.DalamudOrange,
 						string.Format("    {0}: {1}", (object)property.Name, property.GetValue(obj)));
@@ -90,7 +90,7 @@ namespace SmartCast
 					ImGui.TextColored(ImGuiColors.HealerGreen,
 						string.Format("    {0}: {1:X}", (object)field.Name, field.GetValue(obj)));
 				}
-				catch (Exception e)
+				catch (Exception)
 				{
 					ImGui.TextColored(ImGuiColors.HealerGreen,
 						string.Format("    {0}: {1}", (object)field.Name, field.GetValue(obj)));
