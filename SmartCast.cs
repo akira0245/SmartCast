@@ -22,6 +22,7 @@ namespace SmartCast
 
         private Dictionary<uint, Action> GroundTargetActions;
         private Dictionary<uint, Action> DismountActions;
+        private Dictionary<uint, Action> friendlyActions;
         private HashSet<uint> BattleJobs;
 
         private IntPtr _doActionFunc;
@@ -44,7 +45,7 @@ namespace SmartCast
 
         private unsafe delegate byte DoActionLocationDelegate(long a1, uint actionType, uint actionId, long a4/* 0xE0000000 */, Vector3* a5, uint a6/* 0 */);
         private DoActionLocationDelegate _doActionLocation;
-        private Hook<DoActionLocationDelegate> _doActionLocationHook;
+        //private Hook<DoActionLocationDelegate> _doActionLocationHook;
 
         private delegate void MouseToWorldDelegate(long a1, uint spellid, uint a3, long result);
         Hook<MouseToWorldDelegate> _mouseToWorldHook;
@@ -63,7 +64,7 @@ namespace SmartCast
         private uint? _mouseOverID;
 
         private delegate IntPtr PlaceHolder(long param1, string param2, byte param3 = 1, byte param4 = 0);
-        private Hook<PlaceHolder> placeHolderHook;
+        //private Hook<PlaceHolder> placeHolderHook;
         private PlaceHolder _placeHolderDetour;
         private long _placeHolderA1;
 
@@ -78,10 +79,10 @@ namespace SmartCast
             pluginUI.Dispose();
             DalamudApi.Framework.Update -= OnFramework;
             DalamudApi.Dispose();
-            _doActionLocationHook?.Dispose();
+            //_doActionLocationHook?.Dispose();
             _doActionHook?.Dispose();
             mouseOverUiHook?.Dispose();
-            placeHolderHook?.Dispose();
+            //placeHolderHook?.Dispose();
             _mouseToWorldHook?.Dispose();
         }
 
@@ -91,7 +92,11 @@ namespace SmartCast
             GroundTargetActions = DalamudApi.DataManager.GetExcelSheet<Action>().Where(i => i.TargetArea && i.RowId is not (7419 or 3573 or 24403 or 27819)).ToDictionary(i => i.RowId, j => j);
             DismountActions = DalamudApi.DataManager.GetExcelSheet<Action>().Where(i => i.IsPlayerAction && i.RowId > 8 && i.ActionCategory?.Value?.RowId is 2 or 3 or 4 or 9 or 15).ToDictionary(i => i.RowId, j => j);
             BattleJobs = DalamudApi.DataManager.GetExcelSheet<ClassJob>().Where(i => i.ClassJobCategory?.Value?.RowId is 30 or 31).Select(i => i.RowId).ToHashSet();
+            friendlyActions = DalamudApi.DataManager.GetExcelSheet<Action>()
+                .Where(i => (i.ClassJob?.Value?.RowId >=0 || i.IsRoleAction) && (i.CanTargetParty || i.CanTargetFriendly) && !i.IsPvP && i.Name != "")
+                .ToDictionary(i => i.RowId, j => j);
 
+            if (!FFXIVClientStructs.Resolver.Initialized) FFXIVClientStructs.Resolver.Initialize();
             actionManager = (ActionManager*)FFXIVClientStructs.FFXIV.Client.Game.ActionManager.Instance();
             _canCastFunc = (IntPtr)FFXIVClientStructs.FFXIV.Client.Game.ActionManager.fpGetActionStatus;
             _doActionFunc = (IntPtr)FFXIVClientStructs.FFXIV.Client.Game.ActionManager.fpUseAction;
@@ -131,6 +136,8 @@ namespace SmartCast
             var ptr2 = Marshal.ReadIntPtr(ptr1) + 0x2B60;
             var ptr3 = Marshal.ReadIntPtr(ptr2) + 0xAA408 + 0x258;
             _placeHolderA1 = Marshal.ReadInt64(ptr3) + 0xAB610;
+
+            
 
             config = (Config)pluginInterface.GetPluginConfig() ?? new Config();
 
@@ -262,7 +269,7 @@ namespace SmartCast
                     18 => DalamudApi.TargetManager.Target?.ObjectId,
                     _ => null
                 };
-                if (_mouseOverID != null) PluginLog.Error($"{_mouseOverID:X}");
+                if (_mouseOverID != null) PluginLog.Debug($"{_mouseOverID:X}");
 
             }
 
@@ -270,14 +277,14 @@ namespace SmartCast
             return result;
         }
 
-        private IntPtr PlaceHolderDetour(long param1, string param2, byte param3, byte param4)
-        {
+        //private IntPtr PlaceHolderDetour(long param1, string param2, byte param3, byte param4)
+        //{
 
 
-            var result = placeHolderHook.Original(param1, param2);
-            //PluginLog.Error($"{result:X}:{param1:X}:{param2}:{_placeHolderA1:X}");
-            return result;
-        }
+        //    var result = placeHolderHook.Original(param1, param2);
+        //    PluginLog.Error($"{result:X}:{param1:X}:{param2}:{_placeHolderA1:X}");
+        //    return result;
+        //}
 
 
         void QueueAction(long a1, uint type, uint adjustedId, uint targetId, uint castFrom)
@@ -413,18 +420,20 @@ namespace SmartCast
 
             }
             //Smart悬浮施法
-            if (config.MouseOverFriendly && DismountActions.TryGetValue(actionId, out var action2) && (action2.CanTargetFriendly || action2.CanTargetParty))
+            if (config.MouseOverFriendly && friendlyActions.TryGetValue(actionId, out var _))
             {
 
                 if (_mouseOverID != null && _mouseOverID != 0)
                 {
                     var result = _doActionHook.Original(a1, actionType, actionId, (long)_mouseOverID, a5, castFrom, a7, a8);
+                    //PluginLog.Error($"{_mouseOverID:X}");
                     return result;
                 }
                 if (DalamudApi.TargetManager.MouseOverTarget != null)
                 {
                     var result = _doActionHook.Original(a1, actionType, actionId,
                         DalamudApi.TargetManager.MouseOverTarget.ObjectId, a5, castFrom, a7, a8);
+                    //PluginLog.Error($"{DalamudApi.TargetManager.MouseOverTarget.ObjectId:X}");
                     return result;
                 }
 
