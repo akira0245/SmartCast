@@ -17,6 +17,8 @@ namespace SmartCast
 		public bool AutoDismount = true;
 		public bool AutoDismountAndCast = true;
         public bool MouseOverFriendly = false;
+        public bool FieldMouseOver = true;
+        public bool UiMouseOver = true;
         public bool MoveToCameraDirection = true;
         public int Version { get; set; }
 	}

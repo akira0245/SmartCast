@@ -63,10 +63,11 @@ namespace SmartCast
         private Hook<MouseOverUi> mouseOverUiHook;
         private uint? _mouseOverID;
 
-        private delegate IntPtr PlaceHolder(long param1, string param2, byte param3 = 1, byte param4 = 0);
-        //private Hook<PlaceHolder> placeHolderHook;
-        private PlaceHolder _placeHolderDetour;
-        private long _placeHolderA1;
+
+        private delegate long PartyUiUpdate(long a1, long a2, long a3);
+        private Hook<PartyUiUpdate> partyUiUpdateHook;
+        private DataArray* data;
+        private IntPtr l2 = IntPtr.Zero;
 
         internal ActionManager* actionManager;
         private readonly CameraManager* cameraManager;
@@ -82,8 +83,8 @@ namespace SmartCast
             //_doActionLocationHook?.Dispose();
             _doActionHook?.Dispose();
             mouseOverUiHook?.Dispose();
-            //placeHolderHook?.Dispose();
             _mouseToWorldHook?.Dispose();
+            partyUiUpdateHook?.Dispose();
         }
 
         public SmartCast(DalamudPluginInterface pluginInterface)
@@ -126,18 +127,12 @@ namespace SmartCast
             mouseOverUiHook = new Hook<MouseOverUi>(DalamudApi.SigScanner.ScanText("40 56 57 41 55 48 83 EC 30 4C 89 64 24 ??"), MouseOverUiDetour);
             mouseOverUiHook.Enable();
 
-            //placeHolderHook = new Hook<PlaceHolder>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 5C 24 ?? EB 0C"),
-            //    PlaceHolderDetour);
-            //placeHolderHook.Enable();
+            partyUiUpdateHook ??= new Hook<PartyUiUpdate>(
+                DalamudApi.SigScanner.ScanText(
+                    "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 48 8B 7A ?? 48 8B D9 49 8B 70 ?? 48 8B 47"),
+                new PartyUiUpdate(PartyListUpdateDelegate));
+            partyUiUpdateHook.Enable();
 
-            _placeHolderDetour = Marshal.GetDelegateForFunctionPointer<PlaceHolder>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 5C 24 ?? EB 0C"));
-
-            var ptr1 = DalamudApi.SigScanner.GetStaticAddressFromSig("44 0F B6 C0 48 8B 0D ?? ?? ?? ??");
-            var ptr2 = Marshal.ReadIntPtr(ptr1) + 0x2B60;
-            var ptr3 = Marshal.ReadIntPtr(ptr2) + 0xAA408 + 0x258;
-            _placeHolderA1 = Marshal.ReadInt64(ptr3) + 0xAB610;
-
-            
 
             config = (Config)pluginInterface.GetPluginConfig() ?? new Config();
 
@@ -245,13 +240,10 @@ namespace SmartCast
 
         private uint GetObjectId(uint index)
         {
-            var ptr = _placeHolderDetour(_placeHolderA1, $"<{index}>");
-            if (ptr != IntPtr.Zero || (int)ptr != 0)
-            {
-                return (uint)Marshal.ReadInt32(ptr + +0x74);
-            }
-
-            return 0xE0000000;
+            //if (l2 != IntPtr.Zero) PluginLog.Log(data->MemberData((int)index).ActorId.ToString("X"));
+            if (l2 == IntPtr.Zero) return 0xE0000000;
+            var ret = data->MemberData((int) index).ActorId;
+            return ret == 0 ? 0xE0000000 : ret;
         }
 
         private uint* MouseOverUiDetour(long a1, uint* a2, long a3, int a4)
@@ -263,28 +255,19 @@ namespace SmartCast
                 _mouseOverID = l3 switch
                 {
                     //0 => DalamudApi.ClientState.LocalPlayer?.ObjectId,
-                    < 8 => GetObjectId(l3 + 1),
+                    < 8 => GetObjectId(l3),
                     16 => DalamudApi.TargetManager.FocusTarget?.ObjectId,
                     17 => DalamudApi.TargetManager.Target?.TargetObject?.ObjectId,
                     18 => DalamudApi.TargetManager.Target?.ObjectId,
                     _ => null
                 };
-                if (_mouseOverID != null) PluginLog.Debug($"{_mouseOverID:X}");
+                if (_mouseOverID != null) PluginLog.Debug($"MouseOver:{l3}:{_mouseOverID:X}");
 
             }
 
             var result = mouseOverUiHook.Original(a1, a2, a3, a4);
             return result;
         }
-
-        //private IntPtr PlaceHolderDetour(long param1, string param2, byte param3, byte param4)
-        //{
-
-
-        //    var result = placeHolderHook.Original(param1, param2);
-        //    PluginLog.Error($"{result:X}:{param1:X}:{param2}:{_placeHolderA1:X}");
-        //    return result;
-        //}
 
 
         void QueueAction(long a1, uint type, uint adjustedId, uint targetId, uint castFrom)
@@ -423,13 +406,13 @@ namespace SmartCast
             if (config.MouseOverFriendly && friendlyActions.TryGetValue(actionId, out var _))
             {
 
-                if (_mouseOverID != null && _mouseOverID != 0)
+                if (_mouseOverID != null && _mouseOverID != 0 && _mouseOverID != 0xE0000000 && config.UiMouseOver)
                 {
                     var result = _doActionHook.Original(a1, actionType, actionId, (long)_mouseOverID, a5, castFrom, a7, a8);
                     //PluginLog.Error($"{_mouseOverID:X}");
                     return result;
                 }
-                if (DalamudApi.TargetManager.MouseOverTarget != null)
+                if (DalamudApi.TargetManager.MouseOverTarget != null && config.FieldMouseOver)
                 {
                     var result = _doActionHook.Original(a1, actionType, actionId,
                         DalamudApi.TargetManager.MouseOverTarget.ObjectId, a5, castFrom, a7, a8);
@@ -475,6 +458,17 @@ namespace SmartCast
             success = s[1] == 1;
             worldPos = *(Vector3*)(s + 0x10);
             PluginLog.Debug($"{spellId}:{actionType}:{worldPos.X}:{worldPos.Y}:{worldPos.Z}:{mouseOnWorld}:{success}");
+        }
+
+        private long PartyListUpdateDelegate(long a1, long a2, long a3)
+        {
+            if ((IntPtr)a1 != l2)
+            {
+                l2 = (IntPtr)a2;
+                data = (DataArray*)(*(long*)(*(long*)(a2 + 0x20) + 0x20));
+            }
+            //PluginLog.Error(l2.ToString("X"));
+            return partyUiUpdateHook.Original(a1, a2, a3);
         }
 
         public string Name => nameof(SmartCast);
